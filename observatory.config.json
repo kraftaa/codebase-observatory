@@ -1,0 +1,11 @@
+{
+  "generatedPatterns": [
+    "**/*.generated.ts",
+    "**/*.pb.ts",
+    "**/generated/**",
+    "dist/**"
+  ],
+  "highPriorityDependentThreshold": 10,
+  "highPriorityBugFixThreshold": 2,
+  "strongCoChangeThreshold": 2
+}
