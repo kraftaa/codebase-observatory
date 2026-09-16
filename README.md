@@ -1,9 +1,5 @@
 # Codebase Observatory
 
-Moved to its own repo:
-
-https://github.com/kraftaa/codebase-observatory
-
 Deterministic impact analysis for human and AI-generated code changes.
 
 Coding agents know what they edited. Codebase Observatory shows what those
