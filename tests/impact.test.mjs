@@ -14,6 +14,11 @@ function git(repo, ...args) {
   return execFileSync("git", args, { cwd: repo, encoding: "utf8" });
 }
 
+test("executable reports help and version", () => {
+  assert.match(execFileSync(executable, ["--help"], { cwd: root, encoding: "utf8" }), /^Usage: observatory impact/);
+  assert.equal(execFileSync(executable, ["--version"], { cwd: root, encoding: "utf8" }), "0.1.0\n");
+});
+
 test("impact emits deterministic agent-facing evidence and an optional gate", async () => {
   const repo = await mkdtemp(path.join(tmpdir(), "observatory-impact-"));
   git(repo, "init", "-b", "main");
