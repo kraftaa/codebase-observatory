@@ -17,6 +17,9 @@ type WorkflowFinding = {
   detail: string;
   line: number;
   file: string;
+  scope?: "line" | "file";
+  changeType?: "added" | "modified" | "deleted";
+  evidence?: string;
 };
 type ChangedSymbol = {
   file: string;
@@ -181,6 +184,12 @@ export function ReviewMap() {
                           <code>{finding.file}:{finding.line}</code>
                         </div>
                         <p>{finding.detail}</p>
+                        {finding.evidence && (
+                          <div className="finding-evidence">
+                            <span>{finding.changeType ?? "changed"} {finding.scope ?? "line"} evidence</span>
+                            <code>{finding.evidence}</code>
+                          </div>
+                        )}
                       </article>
                     ))}
                   </div>

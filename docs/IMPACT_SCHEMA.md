@@ -62,6 +62,11 @@ Every changed file includes `analysis_coverage`:
 
 Neither `partial`, `classified`, nor `unassessed` is a safety or risk verdict.
 
+GitHub Actions line findings intersect the selected diff and include `line`,
+`changeType`, `scope`, and exact `evidence`. An added-workflow finding describes
+configuration present in the newly added file; it does not attribute authorship
+to a person. File-level findings such as workflow size use `scope: "file"`.
+
 ## Exit codes
 
 - `0`: analysis completed; no gate condition was requested, or no attention

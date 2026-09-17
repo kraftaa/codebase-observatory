@@ -116,6 +116,15 @@ function renderWorkflowFinding(finding) {
     element("code", "", `${finding.file}:${finding.line}`),
   );
   append(card, heading, element("p", "", finding.detail));
+  if (finding.evidence) {
+    const evidence = element("div", "finding-evidence");
+    append(
+      evidence,
+      element("span", "", `${finding.changeType ?? "changed"} ${finding.scope ?? "line"} evidence`),
+      element("code", "", finding.evidence),
+    );
+    card.append(evidence);
+  }
   return card;
 }
 

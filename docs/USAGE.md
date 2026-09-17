@@ -112,6 +112,10 @@ An empty symbol list may mean the diff contains documentation, generated files,
 binary assets, or languages outside the current JavaScript/TypeScript analyzer.
 Changed GitHub Actions workflows include partial analysis of triggers,
 permissions, secrets, action pins, environments, and selected shell patterns.
+Line findings are emitted only when the relevant syntax intersects the diff.
+Each finding records whether the evidence came from an added or modified file,
+the exact line, and the line text. These labels describe the selected range;
+they do not claim who authored the change.
 See [IMPACT_SCHEMA.md](IMPACT_SCHEMA.md) for field definitions and interpretation
 limits, and [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) for a reusable agent prompt.
 

@@ -95,6 +95,8 @@ on:
 permissions: write-all
 jobs:
   deploy:
+    permissions:
+      id-token: write
     environment: production
     runs-on: ubuntu-latest
     steps:
@@ -121,8 +123,14 @@ ${filler}
   assert.deepEqual(workflow.workflowAnalysis.secretNames, ["DEPLOY_TOKEN"]);
   assert.ok(workflow.workflowAnalysis.findings.some((finding) => finding.id === "pull-request-target" && finding.severity === "high"));
   assert.ok(workflow.workflowAnalysis.findings.some((finding) => finding.id === "write-all" && finding.severity === "high"));
+  const idToken = workflow.workflowAnalysis.findings.find((finding) => finding.id === "write-permission-id-token");
+  assert.equal(idToken.title, "Added workflow requests `id-token: write`");
+  assert.equal(idToken.changeType, "added");
+  assert.equal(idToken.scope, "line");
+  assert.equal(idToken.evidence, "id-token: write");
   assert.ok(workflow.workflowAnalysis.findings.some((finding) => finding.id === "unpinned-action-actions/checkout"));
   assert.ok(workflow.workflowAnalysis.findings.some((finding) => finding.id === "large-workflow-added"));
+  assert.ok(workflow.workflowAnalysis.findings.every((finding) => finding.changeType === "added"));
 
   const workflowUnit = data.reviewUnits.find((unit) => unit.id === "github-actions");
   assert.equal(workflowUnit.priority, "high");
@@ -134,4 +142,52 @@ ${filler}
   assert.equal(configUnit.analysisCoverage, "unassessed");
   assert.equal(data.summary.partiallyAnalyzedFiles, 1);
   assert.equal(data.summary.unassessedFiles, 1);
+});
+
+test("workflow findings ignore unchanged configuration and describe modified lines neutrally", async () => {
+  const repo = await mkdtemp(path.join(tmpdir(), "observatory-workflow-diff-"));
+  git(repo, "init", "-b", "main");
+  git(repo, "config", "user.name", "Workflow Diff Fixture");
+  git(repo, "config", "user.email", "workflow-diff@example.test");
+  await put(repo, ".github/workflows/check.yml", `name: Check
+on: push
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo stable
+`);
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "add baseline workflow");
+
+  await put(repo, ".github/workflows/check.yml", `name: Check
+on: push
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo changed
+`);
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "change workflow command");
+
+  const output = path.join(repo, "diff-data.ts");
+  execFileSync(process.execPath, [path.join(root, "scripts/analyze-diff.mjs"), "HEAD~1...HEAD", "--repo", repo, "--output", output], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  const source = await readFile(output, "utf8");
+  const data = JSON.parse(source.replace(/^export const diffReviewMap = /, "").replace(/ as const;\s*$/, ""));
+  const workflow = data.changedFiles.find((file) => file.path === ".github/workflows/check.yml");
+
+  assert.deepEqual(workflow.workflowAnalysis.changedJobs, ["check"]);
+  assert.equal(workflow.workflowAnalysis.findings.some((finding) => finding.id === "write-permission-id-token"), false);
+  assert.deepEqual(workflow.workflowAnalysis.findings, []);
+  assert.equal(data.reviewUnits.find((unit) => unit.id === "github-actions").priority, "medium");
 });

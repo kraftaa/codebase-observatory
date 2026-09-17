@@ -489,14 +489,24 @@ function workflowAnalysisFor(entry) {
   const changedJobs = new Set();
   const changedTriggers = new Set();
   const secretNames = new Set();
+  const addedWorkflow = entry.status === "added";
   let jobsIndent = null;
   let currentJob = null;
   let onIndent = null;
   let permissionsIndent = null;
 
-  const addFinding = (id, severity, title, detail, line) => {
+  const addFinding = (id, severity, title, detail, line, scope = "line") => {
     if (findings.some((finding) => finding.id === id && finding.line === line)) return;
-    findings.push({ id, severity, title, detail, line });
+    findings.push({
+      id,
+      severity,
+      title,
+      detail,
+      line,
+      scope,
+      changeType: entry.status === "added" ? "added" : entry.status === "deleted" ? "deleted" : "modified",
+      evidence: scope === "line" ? (lines[line - 1]?.trim() ?? "") : `${lineCount.toLocaleString()} added lines`,
+    });
   };
 
   for (const [index, rawLine] of lines.entries()) {
@@ -524,12 +534,12 @@ function workflowAnalysisFor(entry) {
       onIndent = indentation;
       const inlineTriggers = onDeclaration[1].trim().replace(/^\[|\]$/g, "").split(",").map((value) => value.trim()).filter(Boolean);
       if (changed(line)) inlineTriggers.forEach((trigger) => changedTriggers.add(trigger));
-      if (changed(line) && inlineTriggers.includes("pull_request_target")) {
+      if (entry.status !== "deleted" && changed(line) && inlineTriggers.includes("pull_request_target")) {
         addFinding(
           "pull-request-target",
           "high",
-          "pull_request_target trigger changed",
-          "This trigger runs in the base repository context; review checkout behavior, permissions, and secret access carefully.",
+          addedWorkflow ? "Added workflow uses `pull_request_target`" : "Workflow trigger changed to `pull_request_target`",
+          "This trigger runs in the base repository context. Review checkout behavior, permissions, and secret access carefully.",
           line,
         );
       }
@@ -549,19 +559,26 @@ function workflowAnalysisFor(entry) {
     if (permissionsIndent != null && indentation <= permissionsIndent) permissionsIndent = null;
 
     if (!changed(line)) continue;
+    if (entry.status === "deleted") continue;
 
     if (isTopLevelTrigger && /^pull_request_target:\s*/.test(text)) {
       changedTriggers.add("pull_request_target");
       addFinding(
         "pull-request-target",
         "high",
-        "pull_request_target trigger changed",
-        "This trigger runs in the base repository context; review checkout behavior, permissions, and secret access carefully.",
+        addedWorkflow ? "Added workflow uses `pull_request_target`" : "Workflow trigger changed to `pull_request_target`",
+        "This trigger runs in the base repository context. Review checkout behavior, permissions, and secret access carefully.",
         line,
       );
     }
     if (/^permissions:\s*write-all\b/i.test(text)) {
-      addFinding("write-all", "high", "Write-all permissions introduced", "The workflow grants write access across every available GitHub token scope.", line);
+      addFinding(
+        "write-all",
+        "high",
+        addedWorkflow ? "Added workflow grants `permissions: write-all`" : "Workflow permissions changed to `write-all`",
+        "The resulting workflow grants write access across every available GitHub token scope.",
+        line,
+      );
     }
     const permission = permissionsIndent != null
       ? text.match(/^(actions|checks|contents|deployments|id-token|packages|pages|pull-requests|security-events|statuses):\s*write\b/i)
@@ -570,8 +587,10 @@ function workflowAnalysisFor(entry) {
       addFinding(
         `write-permission-${permission[1].toLowerCase()}`,
         permission[1].toLowerCase() === "id-token" ? "high" : "medium",
-        `${permission[1]} write permission changed`,
-        "A GitHub token scope with write access was added or modified.",
+        addedWorkflow
+          ? `Added workflow requests \`${permission[1]}: write\``
+          : `\`${permission[1]}\` permission changed to \`write\``,
+        "The resulting workflow requests write access for this GitHub token scope.",
         line,
       );
     }
@@ -581,7 +600,7 @@ function workflowAnalysisFor(entry) {
       addFinding(
         `secret-${match[1]}`,
         "medium",
-        `Secret reference changed: ${match[1]}`,
+        addedWorkflow ? `Added workflow references secret: ${match[1]}` : `Secret reference changed: ${match[1]}`,
         "Confirm the triggering events and job conditions cannot expose this secret to untrusted code.",
         line,
       );
@@ -592,7 +611,9 @@ function workflowAnalysisFor(entry) {
       addFinding(
         `unpinned-action-${action[1]}`,
         "medium",
-        `Action is not commit-pinned: ${action[1]}`,
+        addedWorkflow
+          ? `Added workflow uses mutable action reference: ${action[1]}@${action[2]}`
+          : `Action reference changed and is not commit-pinned: ${action[1]}@${action[2]}`,
         `The mutable reference @${action[2]} can resolve to different code over time; prefer a full commit SHA for stronger supply-chain control.`,
         line,
       );
@@ -603,7 +624,9 @@ function workflowAnalysisFor(entry) {
       addFinding(
         `environment-${environment[1].trim()}`,
         "medium",
-        `Deployment environment changed: ${environment[1].trim()}`,
+        addedWorkflow
+          ? `Added workflow targets environment: ${environment[1].trim()}`
+          : `Deployment environment changed: ${environment[1].trim()}`,
         "Review protection rules, required reviewers, and environment-scoped secrets.",
         line,
       );
@@ -613,8 +636,8 @@ function workflowAnalysisFor(entry) {
       addFinding(
         "dangerous-shell",
         "high",
-        "Dangerous shell execution pattern changed",
-        "The changed command downloads or evaluates code directly, or grants overly broad permissions.",
+        addedWorkflow ? "Added workflow contains a dangerous shell execution pattern" : "Dangerous shell execution pattern changed",
+        "The resulting command downloads or evaluates code directly, or grants overly broad permissions.",
         line,
       );
     }
@@ -628,6 +651,7 @@ function workflowAnalysisFor(entry) {
       "Large workflow added",
       `${lineCount.toLocaleString()} workflow lines were added; review triggers, permissions, jobs, and external actions as a complete execution path.`,
       1,
+      "file",
     );
   }
 

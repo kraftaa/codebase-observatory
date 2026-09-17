@@ -247,6 +247,9 @@ code {
 .workflow-finding > div { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; }
 .workflow-finding p { margin: 9px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .workflow-finding code { color: var(--muted); font-size: 11px; }
+.finding-evidence { display: grid; gap: 5px; margin-top: 10px; }
+.finding-evidence span { color: var(--muted); font: 9px var(--font-mono), monospace; letter-spacing: 0.08em; text-transform: uppercase; }
+.finding-evidence code { display: block; padding: 8px 10px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.24); color: #f0e7d8; white-space: pre-wrap; }
 .changed-symbols article { padding: 12px; border-left: 2px solid var(--violet); background: rgba(167, 139, 250, 0.055); }
 .changed-symbols article > div { display: flex; justify-content: space-between; gap: 12px; }
 .changed-symbols article span, .changed-symbols article p, .changed-symbols article li { color: var(--muted); font-size: 12px; }

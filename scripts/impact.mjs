@@ -163,6 +163,9 @@ try {
         reason: finding.title,
         evidence: {
           line: finding.line,
+          change_type: finding.changeType,
+          scope: finding.scope,
+          source_line: finding.evidence,
           detail: finding.detail,
           analysis_coverage: "partial",
         },

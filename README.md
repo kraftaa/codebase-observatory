@@ -121,7 +121,9 @@ The architecture view is available at `/`; the deterministic review map is at
 Symbol-level analysis currently targets `.js`, `.jsx`, `.ts`, and `.tsx`.
 GitHub Actions analysis is partial and deterministic: it inspects changed
 workflow syntax for selected security and deployment signals but does not
-execute workflows or evaluate third-party action behavior. Other unsupported
+execute workflows or evaluate third-party action behavior. Findings are tied
+to exact changed lines and describe the selected diff range without attributing
+authorship. Other unsupported
 file types are marked unassessed rather than low priority. Missing static
 evidence is not proof of safety, test coverage, or runtime behavior.
 

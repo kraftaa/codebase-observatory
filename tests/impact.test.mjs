@@ -19,7 +19,7 @@ test("executable reports help and version", () => {
   assert.match(help, /^Usage:/);
   assert.match(help, /observatory impact/);
   assert.match(help, /observatory review/);
-  assert.equal(execFileSync(executable, ["--version"], { cwd: root, encoding: "utf8" }), "0.3.0\n");
+  assert.equal(execFileSync(executable, ["--version"], { cwd: root, encoding: "utf8" }), "0.3.1\n");
 });
 
 test("review command ships its standalone interface", async () => {
