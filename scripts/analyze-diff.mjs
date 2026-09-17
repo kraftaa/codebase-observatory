@@ -180,6 +180,40 @@ function classify(file) {
   return "unknown";
 }
 
+function isGitHubWorkflow(file) {
+  return /^\.github\/workflows\/[^/]+\.ya?ml$/i.test(file);
+}
+
+function analysisCoverage(file) {
+  const category = classify(file);
+  if (isGitHubWorkflow(file)) {
+    return {
+      status: "partial",
+      analyzer: "github-actions",
+      explanation: "Workflow triggers, permissions, secret references, action pins, environments, and dangerous shell patterns were inspected.",
+    };
+  }
+  if (category === "runtime") {
+    return {
+      status: "analyzed",
+      analyzer: "javascript-typescript",
+      explanation: "Changed symbols, relative imports, consumers, dependents, history, and nearby-test signals were inspected.",
+    };
+  }
+  if (["test", "docs", "generated"].includes(category)) {
+    return {
+      status: "classified",
+      analyzer: "file-classification",
+      explanation: "The file was classified and measured, but its contents were not semantically analyzed.",
+    };
+  }
+  return {
+    status: "unassessed",
+    analyzer: null,
+    explanation: "The file was measured but Observatory has no semantic analyzer for this file type.",
+  };
+}
+
 function showAtRef(file, ref) {
   const fullPath = repoPrefix && repoPrefix !== "." ? `${repoPrefix}/${file}` : file;
   try {
@@ -441,6 +475,173 @@ function likelyTestMatches(file, changedTests) {
 
 const changedTests = nameEntries.filter((entry) => classify(entry.path) === "test").map((entry) => entry.path);
 const rangesByPath = new Map(nameEntries.map((entry) => [entry.path, diffRanges(entry.path)]));
+
+function workflowAnalysisFor(entry) {
+  if (!isGitHubWorkflow(entry.path)) return null;
+  const source = entry.status === "deleted"
+    ? showAtRef(entry.previousPath ?? entry.path, diffBaseCommit)
+    : showAtHead(entry.path);
+  const ranges = rangesByPath.get(entry.path);
+  const relevantRanges = entry.status === "deleted" ? ranges.oldRanges : ranges.newRanges;
+  const changed = (line) => relevantRanges.some((range) => line >= range.start && line <= range.end);
+  const lines = source.split("\n");
+  const findings = [];
+  const changedJobs = new Set();
+  const changedTriggers = new Set();
+  const secretNames = new Set();
+  let jobsIndent = null;
+  let currentJob = null;
+  let onIndent = null;
+  let permissionsIndent = null;
+
+  const addFinding = (id, severity, title, detail, line) => {
+    if (findings.some((finding) => finding.id === id && finding.line === line)) return;
+    findings.push({ id, severity, title, detail, line });
+  };
+
+  for (const [index, rawLine] of lines.entries()) {
+    const line = index + 1;
+    const indentation = rawLine.match(/^\s*/)[0].length;
+    const text = rawLine.trim();
+    if (!text || text.startsWith("#")) continue;
+
+    if (/^jobs:\s*(?:#.*)?$/.test(text)) {
+      jobsIndent = indentation;
+      currentJob = null;
+      continue;
+    }
+    if (jobsIndent != null && indentation <= jobsIndent && !/^jobs:/.test(text)) {
+      jobsIndent = null;
+      currentJob = null;
+    } else if (jobsIndent != null && indentation === jobsIndent + 2) {
+      const jobMatch = text.match(/^([A-Za-z0-9_-]+):/);
+      if (jobMatch) currentJob = jobMatch[1];
+    }
+    if (currentJob && changed(line)) changedJobs.add(currentJob);
+
+    const onDeclaration = text.match(/^(?:on|['"]on['"]):\s*([^#]*)/);
+    if (onDeclaration) {
+      onIndent = indentation;
+      const inlineTriggers = onDeclaration[1].trim().replace(/^\[|\]$/g, "").split(",").map((value) => value.trim()).filter(Boolean);
+      if (changed(line)) inlineTriggers.forEach((trigger) => changedTriggers.add(trigger));
+      if (changed(line) && inlineTriggers.includes("pull_request_target")) {
+        addFinding(
+          "pull-request-target",
+          "high",
+          "pull_request_target trigger changed",
+          "This trigger runs in the base repository context; review checkout behavior, permissions, and secret access carefully.",
+          line,
+        );
+      }
+      continue;
+    }
+    if (onIndent != null && indentation <= onIndent) onIndent = null;
+    const isTopLevelTrigger = onIndent != null && indentation === onIndent + 2;
+    if (isTopLevelTrigger && changed(line)) {
+      const trigger = text.match(/^([A-Za-z0-9_-]+):?/i)?.[1];
+      if (trigger) changedTriggers.add(trigger);
+    }
+
+    if (/^permissions:\s*(?:#.*)?$/i.test(text)) {
+      permissionsIndent = indentation;
+      continue;
+    }
+    if (permissionsIndent != null && indentation <= permissionsIndent) permissionsIndent = null;
+
+    if (!changed(line)) continue;
+
+    if (isTopLevelTrigger && /^pull_request_target:\s*/.test(text)) {
+      changedTriggers.add("pull_request_target");
+      addFinding(
+        "pull-request-target",
+        "high",
+        "pull_request_target trigger changed",
+        "This trigger runs in the base repository context; review checkout behavior, permissions, and secret access carefully.",
+        line,
+      );
+    }
+    if (/^permissions:\s*write-all\b/i.test(text)) {
+      addFinding("write-all", "high", "Write-all permissions introduced", "The workflow grants write access across every available GitHub token scope.", line);
+    }
+    const permission = permissionsIndent != null
+      ? text.match(/^(actions|checks|contents|deployments|id-token|packages|pages|pull-requests|security-events|statuses):\s*write\b/i)
+      : null;
+    if (permission) {
+      addFinding(
+        `write-permission-${permission[1].toLowerCase()}`,
+        permission[1].toLowerCase() === "id-token" ? "high" : "medium",
+        `${permission[1]} write permission changed`,
+        "A GitHub token scope with write access was added or modified.",
+        line,
+      );
+    }
+
+    for (const match of text.matchAll(/secrets\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
+      secretNames.add(match[1]);
+      addFinding(
+        `secret-${match[1]}`,
+        "medium",
+        `Secret reference changed: ${match[1]}`,
+        "Confirm the triggering events and job conditions cannot expose this secret to untrusted code.",
+        line,
+      );
+    }
+
+    const action = text.match(/^(?:-\s*)?uses:\s*([^\s#]+)@([^\s#]+)/i);
+    if (action && !/^[0-9a-f]{40}$/i.test(action[2]) && !action[1].startsWith("./")) {
+      addFinding(
+        `unpinned-action-${action[1]}`,
+        "medium",
+        `Action is not commit-pinned: ${action[1]}`,
+        `The mutable reference @${action[2]} can resolve to different code over time; prefer a full commit SHA for stronger supply-chain control.`,
+        line,
+      );
+    }
+
+    const environment = text.match(/^environment:\s*([^#]+?)\s*$/i);
+    if (environment) {
+      addFinding(
+        `environment-${environment[1].trim()}`,
+        "medium",
+        `Deployment environment changed: ${environment[1].trim()}`,
+        "Review protection rules, required reviewers, and environment-scoped secrets.",
+        line,
+      );
+    }
+
+    if (/(?:curl|wget)\b[^|\n]*\|\s*(?:sudo\s+)?(?:ba)?sh\b/i.test(text) || /\bchmod\s+777\b|\beval\s+/i.test(text)) {
+      addFinding(
+        "dangerous-shell",
+        "high",
+        "Dangerous shell execution pattern changed",
+        "The changed command downloads or evaluates code directly, or grants overly broad permissions.",
+        line,
+      );
+    }
+  }
+
+  const lineCount = relevantRanges.reduce((total, range) => total + range.end - range.start + 1, 0);
+  if (entry.status === "added" && lineCount >= 100) {
+    addFinding(
+      "large-workflow-added",
+      "medium",
+      "Large workflow added",
+      `${lineCount.toLocaleString()} workflow lines were added; review triggers, permissions, jobs, and external actions as a complete execution path.`,
+      1,
+    );
+  }
+
+  const findingOrder = { high: 0, medium: 1 };
+  findings.sort((a, b) => findingOrder[a.severity] - findingOrder[b.severity] || a.line - b.line || a.id.localeCompare(b.id));
+  return {
+    status: "partial",
+    changedJobs: [...changedJobs].sort(),
+    changedTriggers: [...changedTriggers].sort(),
+    secretNames: [...secretNames].sort(),
+    findings,
+  };
+}
+
 const changedFiles = nameEntries.map((entry) => {
   const stats = numstat.get(entry.path) ?? { additions: 0, deletions: 0 };
   const historyStat = historyByFile.get(entry.path);
@@ -450,12 +651,16 @@ const changedFiles = nameEntries.map((entry) => {
   ])].sort();
   const transitive = [...transitiveDependents(entry.path, entry.previousPath)].sort();
   const nearbyTests = classify(entry.path) === "runtime" ? likelyTestMatches(entry.path, changedTests) : [];
+  const coverage = analysisCoverage(entry.path);
+  const workflowAnalysis = workflowAnalysisFor(entry);
   const signals = [];
   if (classify(entry.path) === "runtime") signals.push("runtime source changed");
   if (transitive.length) signals.push(`${transitive.length} transitive dependent${transitive.length === 1 ? "" : "s"}`);
   if (historyStat.commits) signals.push(`${historyStat.commits} commit${historyStat.commits === 1 ? "" : "s"} in the last 90 days`);
   if (historyStat.bugFixes) signals.push(`${historyStat.bugFixes} recent bug-fix commit${historyStat.bugFixes === 1 ? "" : "s"}`);
   if (classify(entry.path) === "runtime" && !nearbyTests.length) signals.push("no nearby test file changed");
+  if (workflowAnalysis) signals.push(...workflowAnalysis.findings.map((finding) => finding.title));
+  if (coverage.status === "unassessed") signals.push("semantic impact not assessed");
   return {
     path: entry.path,
     previousPath: entry.previousPath,
@@ -466,6 +671,8 @@ const changedFiles = nameEntries.map((entry) => {
       ? rangesByPath.get(entry.path).oldRanges
       : rangesByPath.get(entry.path).newRanges,
     category: classify(entry.path),
+    analysisCoverage: coverage,
+    workflowAnalysis,
     churnScore: historyStat.commits,
     history: {
       commitsLast90Days: historyStat.commits,
@@ -655,8 +862,36 @@ const reviewUnits = components.map((paths, index) => {
   return { id: `runtime-${index + 1}`, title: commonTitle(paths), files: paths, reason, blastRadius, untestedRuntimeFiles, changedSymbols, externallyUsedChangedSymbols, affectedConsumers, priority };
 });
 
+const workflowFiles = changedFiles.filter((file) => file.workflowAnalysis);
+if (workflowFiles.length) {
+  const findings = workflowFiles.flatMap((file) => file.workflowAnalysis.findings.map((finding) => ({ ...finding, file: file.path })));
+  const highFindings = findings.filter((finding) => finding.severity === "high");
+  const changedJobs = [...new Set(workflowFiles.flatMap((file) => file.workflowAnalysis.changedJobs))].sort();
+  const changedTriggers = [...new Set(workflowFiles.flatMap((file) => file.workflowAnalysis.changedTriggers))].sort();
+  const reason = [`${workflowFiles.length} GitHub Actions workflow${workflowFiles.length === 1 ? "" : "s"} changed`];
+  if (highFindings.length) reason.push(`${highFindings.length} high-attention workflow finding${highFindings.length === 1 ? "" : "s"}`);
+  if (findings.length) reason.push(`${findings.length} deterministic workflow finding${findings.length === 1 ? "" : "s"}`);
+  if (changedJobs.length) reason.push(`${changedJobs.length} changed job${changedJobs.length === 1 ? "" : "s"}: ${changedJobs.join(", ")}`);
+  if (changedTriggers.length) reason.push(`changed triggers: ${changedTriggers.join(", ")}`);
+  reason.push("workflow analysis is partial and does not establish runtime safety");
+  reviewUnits.push({
+    id: "github-actions",
+    title: "GitHub Actions",
+    files: workflowFiles.map((file) => file.path),
+    reason,
+    blastRadius: 0,
+    untestedRuntimeFiles: [],
+    changedSymbols: [],
+    externallyUsedChangedSymbols: 0,
+    affectedConsumers: [],
+    workflowFindings: findings,
+    analysisCoverage: "partial",
+    priority: highFindings.length ? "high" : "medium",
+  });
+}
+
 for (const category of ["generated", "test", "docs", "config", "unknown"]) {
-  const files = changedFiles.filter((file) => file.category === category);
+  const files = changedFiles.filter((file) => file.category === category && !file.workflowAnalysis);
   if (!files.length) continue;
   const lines = files.reduce((sum, file) => sum + file.additions + file.deletions, 0);
   reviewUnits.push({
@@ -669,11 +904,13 @@ for (const category of ["generated", "test", "docs", "config", "unknown"]) {
     changedSymbols: [],
     externallyUsedChangedSymbols: 0,
     affectedConsumers: [],
-    priority: "low",
+    workflowFindings: [],
+    analysisCoverage: files.some((file) => file.analysisCoverage.status === "unassessed") ? "unassessed" : "classified",
+    priority: files.some((file) => file.analysisCoverage.status === "unassessed") ? "unassessed" : "low",
   });
 }
 
-const priorityOrder = { high: 0, medium: 1, low: 2 };
+const priorityOrder = { high: 0, medium: 1, unassessed: 2, low: 3 };
 reviewUnits.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority] || b.blastRadius - a.blastRadius || a.title.localeCompare(b.title));
 const summary = {
   filesChanged: changedFiles.length,
@@ -684,6 +921,11 @@ const summary = {
   generatedFiles: changedFiles.filter((file) => file.category === "generated").length,
   configFiles: changedFiles.filter((file) => file.category === "config").length,
   docsFiles: changedFiles.filter((file) => file.category === "docs").length,
+  analyzedFiles: changedFiles.filter((file) => file.analysisCoverage.status === "analyzed").length,
+  partiallyAnalyzedFiles: changedFiles.filter((file) => file.analysisCoverage.status === "partial").length,
+  classifiedOnlyFiles: changedFiles.filter((file) => file.analysisCoverage.status === "classified").length,
+  unassessedFiles: changedFiles.filter((file) => file.analysisCoverage.status === "unassessed").length,
+  workflowFindings: changedFiles.reduce((sum, file) => sum + (file.workflowAnalysis?.findings.length ?? 0), 0),
 };
 const baseRef = requestedBaseRef;
 const headRef = workingTree ? "WORKTREE" : requestedHeadRef;

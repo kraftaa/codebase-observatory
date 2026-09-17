@@ -77,8 +77,9 @@ test("server-renders the deterministic diff review map", async () => {
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /Diff Review Map/);
-  assert.match(html, /explainable review plan/i);
-  assert.match(html, /No generated summary or opaque score/i);
+  assert.match(html, /review unit/i);
+  assert.match(html, /Unassessed files are called out explicitly/i);
+  assert.match(html, /Analysis coverage/i);
   assert.match(html, /Runtime/);
   assert.match(html, /Generated/);
   assert.match(html, /Deterministic diff analysis/);

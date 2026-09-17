@@ -37,6 +37,8 @@ No repository clone or npm installation is required.
 - exact files, line counts, changed ranges, and change types
 - changed JavaScript and TypeScript symbols
 - direct consumers and file-level downstream impact
+- explicit analyzed, partial, classified-only, and unassessed coverage states
+- GitHub Actions triggers, permissions, secret references, action pins, environments, and dangerous shell patterns
 - nearby-test change signals
 - churn, coupling, ownership, and recent bug-fix evidence
 - review units with explicit priority reasons
@@ -117,16 +119,18 @@ The architecture view is available at `/`; the deterministic review map is at
 ## Current Scope
 
 Symbol-level analysis currently targets `.js`, `.jsx`, `.ts`, and `.tsx`.
-Missing static evidence is not proof of safety, test coverage, or runtime
-behavior. Observatory is a review-compression aid, not a replacement for tests,
-runtime validation, or reviewer judgment.
+GitHub Actions analysis is partial and deterministic: it inspects changed
+workflow syntax for selected security and deployment signals but does not
+execute workflows or evaluate third-party action behavior. Other unsupported
+file types are marked unassessed rather than low priority. Missing static
+evidence is not proof of safety, test coverage, or runtime behavior.
 
 ## Next Experiments
 
 1. Measure review time and missed issues on ten real, large pull requests.
-2. Validate symbols across re-exports, aliases, and barrel files.
-3. Compare file-level and symbol-level blast-radius accuracy.
-4. Improve test matching before adding hosted pull-request ingestion.
+2. Add direct `--pr` selection without requiring a branch checkout.
+3. Add dbt model, macro, test, and lineage impact analysis.
+4. Validate symbols across re-exports, aliases, and barrel files.
 
 ## License
 

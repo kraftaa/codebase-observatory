@@ -18,8 +18,8 @@ new schema version.
 - `analysis`: always `deterministic_static_impact` in version 1.
 - `change`: requested refs plus resolved merge-base and head commits.
 - `summary`: counts for files, lines, symbols, consumers, units, and attention.
-- `changed_files`: exact status, category, line counts, and changed ranges for
-  every file in the effective diff.
+- `changed_files`: exact status, category, line counts, changed ranges, analysis
+  coverage, and optional workflow findings for every file in the effective diff.
 - `changed_symbols`: changed JS/TS declarations and detected direct consumers.
 - `affected_consumers`: consumer files reached by changed symbols and whether
   each file was modified in the analyzed change.
@@ -36,6 +36,8 @@ Version 1 may emit:
 - `changed_symbol_reaches_unmodified_consumers`
 - `changed_export_without_nearby_test_change`
 - `broad_file_impact_without_nearby_test_change`
+- `github_actions_workflow_finding`
+- `semantic_impact_unassessed`
 
 Attention priority is a transparent rule classification, not a risk score.
 Every item includes a human-readable reason and the evidence used by the rule.
@@ -45,6 +47,20 @@ Git diff. It does not establish whether a coding agent inspected that file.
 
 `nearby_test_change: "not_detected"` means no deterministic path/name match was
 changed. It does not prove that tests are absent, inadequate, or were not run.
+
+## Analysis coverage
+
+Every changed file includes `analysis_coverage`:
+
+- `analyzed`: supported semantic analysis ran, currently for JavaScript and
+  TypeScript symbol impact.
+- `partial`: a bounded semantic analyzer ran. GitHub Actions analysis currently
+  checks changed triggers, token permissions, secret references, mutable action
+  references, environments, workflow size, and selected shell patterns.
+- `classified`: the file was categorized and measured, without semantic analysis.
+- `unassessed`: Observatory has no semantic analyzer for the file type.
+
+Neither `partial`, `classified`, nor `unassessed` is a safety or risk verdict.
 
 ## Exit codes
 

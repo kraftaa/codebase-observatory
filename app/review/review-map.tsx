@@ -4,7 +4,20 @@ import { useState } from "react";
 import Link from "next/link";
 import { diffReviewMap } from "../generated/diff-data";
 
-type Priority = "high" | "medium" | "low";
+type Priority = "high" | "medium" | "unassessed" | "low";
+type AnalysisCoverage = {
+  status: "analyzed" | "partial" | "classified" | "unassessed";
+  analyzer: string | null;
+  explanation: string;
+};
+type WorkflowFinding = {
+  id: string;
+  severity: "high" | "medium";
+  title: string;
+  detail: string;
+  line: number;
+  file: string;
+};
 type ChangedSymbol = {
   file: string;
   name: string;
@@ -24,10 +37,35 @@ type ReviewUnit = {
   changedSymbols: readonly ChangedSymbol[];
   externallyUsedChangedSymbols: number;
   affectedConsumers: readonly string[];
+  workflowFindings?: readonly WorkflowFinding[];
+  analysisCoverage?: string;
   priority: Priority;
 };
 
-const units = diffReviewMap.reviewUnits as readonly ReviewUnit[];
+type ReviewFile = (typeof diffReviewMap.changedFiles)[number] & {
+  analysisCoverage?: AnalysisCoverage;
+};
+const changedFiles = diffReviewMap.changedFiles as unknown as readonly ReviewFile[];
+const units = (diffReviewMap.reviewUnits as unknown as readonly ReviewUnit[]).map((unit) => {
+  if (unit.analysisCoverage) return unit;
+  if (unit.id.startsWith("runtime-")) return { ...unit, analysisCoverage: "analyzed" };
+  if (unit.id === "config" || unit.id === "unknown") {
+    return { ...unit, analysisCoverage: "unassessed", priority: "unassessed" as const };
+  }
+  return { ...unit, analysisCoverage: "classified" };
+});
+const coverageSummary = diffReviewMap.summary as typeof diffReviewMap.summary & {
+  analyzedFiles?: number;
+  partiallyAnalyzedFiles?: number;
+  classifiedOnlyFiles?: number;
+  unassessedFiles?: number;
+};
+const inferredCoverage = {
+  analyzed: changedFiles.filter((file) => file.category === "runtime").length,
+  partial: changedFiles.filter((file) => file.analysisCoverage?.status === "partial").length,
+  classified: changedFiles.filter((file) => ["test", "docs", "generated"].includes(file.category)).length,
+  unassessed: changedFiles.filter((file) => ["config", "unknown"].includes(file.category) && file.analysisCoverage?.status !== "partial").length,
+};
 
 function label(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -37,10 +75,10 @@ export function ReviewMap() {
   const [selectedId, setSelectedId] = useState(units[0]?.id ?? "");
   const selected = units.find((unit) => unit.id === selectedId) ?? units[0];
   const selectedFiles = selected
-    ? diffReviewMap.changedFiles.filter((file) => selected.files.includes(file.path))
+    ? changedFiles.filter((file) => selected.files.includes(file.path))
     : [];
   const categorizedLines = (category: string) =>
-    diffReviewMap.changedFiles
+    changedFiles
       .filter((file) => file.category === category)
       .reduce((total, file) => total + file.additions + file.deletions, 0);
 
@@ -52,13 +90,13 @@ export function ReviewMap() {
         <span>{diffReviewMap.baseRef} → {diffReviewMap.headRef}</span>
       </nav>
 
-      <header className="review-hero">
+      <header className="review-overview">
         <div>
           <p className="eyebrow">Diff Review Map</p>
-          <h1>Turn a large diff into an explainable review plan.</h1>
+          <h1>{units.length} review unit{units.length === 1 ? "" : "s"} across {diffReviewMap.summary.filesChanged} changed file{Number(diffReviewMap.summary.filesChanged) === 1 ? "" : "s"}</h1>
           <p>
-            No generated summary or opaque score. Priority comes from dependency reach,
-            recent history, co-change, and whether a nearby test changed.
+            Deterministic evidence only. Unassessed files are called out explicitly
+            instead of being labeled low risk.
           </p>
         </div>
         <div className="review-total">
@@ -67,6 +105,19 @@ export function ReviewMap() {
           <code>+{diffReviewMap.summary.additions.toLocaleString()} / −{diffReviewMap.summary.deletions.toLocaleString()}</code>
         </div>
       </header>
+
+      <section className="coverage-summary" aria-label="Analysis coverage">
+        {[
+          ["Analyzed", coverageSummary.analyzedFiles ?? inferredCoverage.analyzed, "analyzed"],
+          ["Partial", coverageSummary.partiallyAnalyzedFiles ?? inferredCoverage.partial, "partial"],
+          ["Classified only", coverageSummary.classifiedOnlyFiles ?? inferredCoverage.classified, "classified"],
+          ["Unassessed", coverageSummary.unassessedFiles ?? inferredCoverage.unassessed, "unassessed"],
+        ].map(([name, count, status]) => (
+          <article className={`coverage-card-${status}`} key={String(status)}>
+            <span>{name}</span><strong>{count}</strong>
+          </article>
+        ))}
+      </section>
 
       <section className="review-breakdown" aria-label="Diff categories">
         {[
@@ -105,7 +156,7 @@ export function ReviewMap() {
                   <strong>{unit.title}</strong>
                   <span>{unit.files.length} file{unit.files.length === 1 ? "" : "s"}</span>
                   <p>{unit.reason[0]}</p>
-                  <small>{unit.changedSymbols.length ? `${unit.changedSymbols.length} changed symbols · ${unit.affectedConsumers.length} affected consumers` : unit.blastRadius ? `${unit.blastRadius} downstream files` : "classified change set"}</small>
+                  <small>{unit.changedSymbols.length ? `${unit.changedSymbols.length} changed symbols · ${unit.affectedConsumers.length} affected consumers` : unit.workflowFindings?.length ? `${unit.workflowFindings.length} workflow findings · ${unit.analysisCoverage} analysis` : unit.blastRadius ? `${unit.blastRadius} downstream files` : `${unit.analysisCoverage ?? "classified"} change set`}</small>
                 </button>
               ))}
             </div>
@@ -118,6 +169,23 @@ export function ReviewMap() {
               <div className="reason-list">
                 {selected.reason.map((reason) => <p key={reason}>• {reason}</p>)}
               </div>
+              {selected.workflowFindings && selected.workflowFindings.length > 0 && (
+                <>
+                  <h3>Workflow findings</h3>
+                  <div className="workflow-findings">
+                    {selected.workflowFindings.map((finding) => (
+                      <article className={`workflow-finding finding-${finding.severity}`} key={`${finding.file}:${finding.id}:${finding.line}`}>
+                        <div>
+                          <span className={`priority priority-${finding.severity}`}>{finding.severity}</span>
+                          <strong>{finding.title}</strong>
+                          <code>{finding.file}:{finding.line}</code>
+                        </div>
+                        <p>{finding.detail}</p>
+                      </article>
+                    ))}
+                  </div>
+                </>
+              )}
               {selected.changedSymbols.length > 0 && (
                 <>
                   <h3>Changed symbols</h3>
@@ -151,6 +219,12 @@ export function ReviewMap() {
                       <code>{file.path}</code>
                       <span>{label(file.status)} · {file.category} · +{file.additions} / −{file.deletions}</span>
                     </div>
+                    {file.analysisCoverage && (
+                      <div className="file-coverage">
+                        <span className={`coverage coverage-${file.analysisCoverage.status}`}>{file.analysisCoverage.status}</span>
+                        <span>{file.analysisCoverage.explanation}</span>
+                      </div>
+                    )}
                     <dl>
                       <div><dt>Downstream</dt><dd>{file.transitiveDependentCount}</dd></div>
                       <div><dt>Commits / 90d</dt><dd>{file.history.commitsLast90Days}</dd></div>

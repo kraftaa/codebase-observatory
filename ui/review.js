@@ -24,6 +24,10 @@ function priorityBadge(priority) {
   return element("span", `priority priority-${priority}`, priority);
 }
 
+function coverageBadge(coverage) {
+  return element("span", `coverage coverage-${coverage.status}`, coverage.status.replace("_", " "));
+}
+
 function categoryLines(data, categories) {
   return data.changedFiles
     .filter((file) => categories.includes(file.category))
@@ -67,6 +71,9 @@ function renderFile(file) {
     element("span", "", `${label(file.status)} · ${file.category} · +${file.additions} / −${file.deletions}`),
   );
   card.append(heading);
+  const coverage = element("div", "file-coverage");
+  append(coverage, coverageBadge(file.analysisCoverage), element("span", "", file.analysisCoverage.explanation));
+  card.append(coverage);
 
   const facts = [
     ["Downstream", file.transitiveDependentCount],
@@ -99,6 +106,19 @@ function renderFile(file) {
   return card;
 }
 
+function renderWorkflowFinding(finding) {
+  const card = element("article", `workflow-finding finding-${finding.severity}`);
+  const heading = element("div");
+  append(
+    heading,
+    priorityBadge(finding.severity),
+    element("strong", "", finding.title),
+    element("code", "", `${finding.file}:${finding.line}`),
+  );
+  append(card, heading, element("p", "", finding.detail));
+  return card;
+}
+
 function renderDetail(data, unit) {
   const detail = element("aside", "review-detail");
   append(detail, priorityBadge(unit.priority), element("h2", "", unit.title));
@@ -106,6 +126,13 @@ function renderDetail(data, unit) {
   const reasons = element("div", "reason-list");
   for (const reason of unit.reason) reasons.append(element("p", "", `• ${reason}`));
   detail.append(reasons);
+
+  if (unit.workflowFindings?.length) {
+    detail.append(element("h3", "", "Workflow findings"));
+    const findings = element("div", "workflow-findings");
+    for (const finding of unit.workflowFindings) findings.append(renderWorkflowFinding(finding));
+    detail.append(findings);
+  }
 
   if (unit.changedSymbols.length) {
     detail.append(element("h3", "", "Changed symbols"));
@@ -135,13 +162,13 @@ function render(data) {
   append(nav, product, element("span", "", "Deterministic diff analysis"), element("span", "", `${data.baseRef} → ${data.headRef}`), json);
   app.append(nav);
 
-  const hero = element("header", "review-hero");
+  const hero = element("header", "review-overview");
   const heroCopy = element("div");
   append(
     heroCopy,
     element("p", "eyebrow", "Diff Review Map"),
-    element("h1", "", "Turn a large diff into an explainable review plan."),
-    element("p", "", "No generated summary or opaque score. Priority comes from dependency reach, recent history, co-change, and whether a nearby test changed."),
+    element("h1", "", `${data.reviewUnits.length} review unit${data.reviewUnits.length === 1 ? "" : "s"} across ${data.summary.filesChanged} changed file${data.summary.filesChanged === 1 ? "" : "s"}`),
+    element("p", "", "Deterministic evidence only. Unassessed files are called out explicitly instead of being labeled low risk."),
   );
   const total = element("div", "review-total");
   append(
@@ -152,6 +179,20 @@ function render(data) {
   );
   append(hero, heroCopy, total);
   app.append(hero);
+
+  const coverageSummary = element("section", "coverage-summary");
+  coverageSummary.setAttribute("aria-label", "Analysis coverage");
+  for (const [name, count, status] of [
+    ["Analyzed", data.summary.analyzedFiles, "analyzed"],
+    ["Partial", data.summary.partiallyAnalyzedFiles, "partial"],
+    ["Classified only", data.summary.classifiedOnlyFiles, "classified"],
+    ["Unassessed", data.summary.unassessedFiles, "unassessed"],
+  ]) {
+    const card = element("article", `coverage-card coverage-card-${status}`);
+    append(card, element("span", "", name), element("strong", "", count.toLocaleString()));
+    coverageSummary.append(card);
+  }
+  app.append(coverageSummary);
 
   const breakdown = element("section", "review-breakdown");
   breakdown.setAttribute("aria-label", "Diff categories");
@@ -214,9 +255,11 @@ function render(data) {
     button.setAttribute("aria-pressed", "false");
     const signal = unit.changedSymbols.length
       ? `${unit.changedSymbols.length} changed symbols · ${unit.affectedConsumers.length} affected consumers`
+      : unit.workflowFindings?.length
+        ? `${unit.workflowFindings.length} workflow findings · ${unit.analysisCoverage} analysis`
       : unit.blastRadius
         ? `${unit.blastRadius} downstream files`
-        : "classified change set";
+        : `${unit.analysisCoverage ?? "classified"} change set`;
     append(
       button,
       priorityBadge(unit.priority),

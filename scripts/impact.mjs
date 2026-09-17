@@ -153,6 +153,36 @@ try {
       },
     });
   }
+  for (const file of data.changedFiles) {
+    for (const finding of file.workflowAnalysis?.findings ?? []) {
+      attention.push({
+        id: `workflow:${file.path}:${finding.id}:${finding.line}`,
+        priority: finding.severity,
+        type: "github_actions_workflow_finding",
+        file: file.path,
+        reason: finding.title,
+        evidence: {
+          line: finding.line,
+          detail: finding.detail,
+          analysis_coverage: "partial",
+        },
+      });
+    }
+    if (file.analysisCoverage.status === "unassessed") {
+      attention.push({
+        id: `semantic-impact-unassessed:${file.path}`,
+        priority: "medium",
+        type: "semantic_impact_unassessed",
+        file: file.path,
+        reason: "Observatory measured this changed file but has no semantic analyzer for its file type.",
+        evidence: {
+          category: file.category,
+          additions: file.additions,
+          deletions: file.deletions,
+        },
+      });
+    }
+  }
   attention.sort((a, b) => ({ high: 0, medium: 1, low: 2 })[a.priority] - ({ high: 0, medium: 1, low: 2 })[b.priority] || a.id.localeCompare(b.id));
 
   const output = {
@@ -175,12 +205,19 @@ try {
       unmodified_affected_consumer_files: affectedConsumers.filter((consumer) => !consumer.modified_in_change).length,
       review_units: data.reviewUnits.length,
       attention_items: attention.length,
+      analyzed_files: data.summary.analyzedFiles,
+      partially_analyzed_files: data.summary.partiallyAnalyzedFiles,
+      classified_only_files: data.summary.classifiedOnlyFiles,
+      unassessed_files: data.summary.unassessedFiles,
+      workflow_findings: data.summary.workflowFindings,
     },
     changed_files: data.changedFiles.map((file) => ({
       path: file.path,
       ...(file.previousPath ? { previous_path: file.previousPath } : {}),
       status: file.status,
       category: file.category,
+      analysis_coverage: file.analysisCoverage,
+      ...(file.workflowAnalysis ? { workflow_analysis: file.workflowAnalysis } : {}),
       additions: file.additions,
       deletions: file.deletions,
       changed_line_ranges: file.changedLineRanges,
@@ -195,6 +232,8 @@ try {
       files: unit.files,
       changed_symbols: unit.changedSymbols.map(symbolKey).sort(),
       affected_consumers: unit.affectedConsumers,
+      analysis_coverage: unit.analysisCoverage ?? "analyzed",
+      workflow_findings: unit.workflowFindings ?? [],
       reasons: unit.reason,
     })),
     attention,
@@ -202,6 +241,8 @@ try {
       "Consumer detection currently covers statically resolvable relative JavaScript and TypeScript imports.",
       "A consumer not modified in the change does not establish whether an agent or reviewer inspected it.",
       "No nearby-test change detected does not prove that behavior is untested or that tests were not run.",
+      "GitHub Actions analysis is partial and pattern-based; it does not evaluate the behavior of executed actions or commands.",
+      "Unassessed means semantic impact was not analyzed; it is not a low-risk verdict.",
       "This report is impact context, not a safety verdict.",
     ],
   };

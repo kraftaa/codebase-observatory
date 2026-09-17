@@ -78,3 +78,60 @@ test("analyze-diff reports exact files, line counts, and renames", async () => {
   assert.equal(runtimeUnit.externallyUsedChangedSymbols, 1);
   assert.deepEqual(runtimeUnit.affectedConsumers, ["src/consumer.ts"]);
 });
+
+test("analyze-diff reports coverage and GitHub Actions findings without calling unknown config low risk", async () => {
+  const repo = await mkdtemp(path.join(tmpdir(), "observatory-workflow-"));
+  git(repo, "init", "-b", "main");
+  git(repo, "config", "user.name", "Workflow Fixture");
+  git(repo, "config", "user.email", "workflow@example.test");
+  await put(repo, "README.md", "# Fixture\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "initial fixture");
+
+  const filler = Array.from({ length: 95 }, (_, index) => `      # review line ${index + 1}`).join("\n");
+  await put(repo, ".github/workflows/release.yml", `name: Release
+on:
+  pull_request_target:
+permissions: write-all
+jobs:
+  deploy:
+    environment: production
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo \"${"${{ secrets.DEPLOY_TOKEN }}"}\"
+${filler}
+`);
+  await put(repo, "settings.yml", "feature: enabled\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "add release workflow");
+
+  const output = path.join(repo, "diff-data.ts");
+  execFileSync(process.execPath, [path.join(root, "scripts/analyze-diff.mjs"), "HEAD~1...HEAD", "--repo", repo, "--output", output], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  const source = await readFile(output, "utf8");
+  const data = JSON.parse(source.replace(/^export const diffReviewMap = /, "").replace(/ as const;\s*$/, ""));
+
+  const workflow = data.changedFiles.find((file) => file.path === ".github/workflows/release.yml");
+  assert.equal(workflow.analysisCoverage.status, "partial");
+  assert.deepEqual(workflow.workflowAnalysis.changedJobs, ["deploy"]);
+  assert.deepEqual(workflow.workflowAnalysis.changedTriggers, ["pull_request_target"]);
+  assert.deepEqual(workflow.workflowAnalysis.secretNames, ["DEPLOY_TOKEN"]);
+  assert.ok(workflow.workflowAnalysis.findings.some((finding) => finding.id === "pull-request-target" && finding.severity === "high"));
+  assert.ok(workflow.workflowAnalysis.findings.some((finding) => finding.id === "write-all" && finding.severity === "high"));
+  assert.ok(workflow.workflowAnalysis.findings.some((finding) => finding.id === "unpinned-action-actions/checkout"));
+  assert.ok(workflow.workflowAnalysis.findings.some((finding) => finding.id === "large-workflow-added"));
+
+  const workflowUnit = data.reviewUnits.find((unit) => unit.id === "github-actions");
+  assert.equal(workflowUnit.priority, "high");
+  assert.equal(workflowUnit.analysisCoverage, "partial");
+  assert.ok(workflowUnit.workflowFindings.length >= 5);
+
+  const configUnit = data.reviewUnits.find((unit) => unit.id === "config");
+  assert.equal(configUnit.priority, "unassessed");
+  assert.equal(configUnit.analysisCoverage, "unassessed");
+  assert.equal(data.summary.partiallyAnalyzedFiles, 1);
+  assert.equal(data.summary.unassessedFiles, 1);
+});

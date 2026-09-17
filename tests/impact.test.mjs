@@ -19,7 +19,7 @@ test("executable reports help and version", () => {
   assert.match(help, /^Usage:/);
   assert.match(help, /observatory impact/);
   assert.match(help, /observatory review/);
-  assert.equal(execFileSync(executable, ["--version"], { cwd: root, encoding: "utf8" }), "0.2.0\n");
+  assert.equal(execFileSync(executable, ["--version"], { cwd: root, encoding: "utf8" }), "0.3.0\n");
 });
 
 test("review command ships its standalone interface", async () => {
@@ -62,6 +62,8 @@ test("impact emits deterministic agent-facing evidence and an optional gate", as
   assert.equal(impact.schema_version, 1);
   assert.equal(impact.analysis, "deterministic_static_impact");
   assert.equal(impact.summary.changed_symbols, 1);
+  assert.equal(impact.summary.analyzed_files, 1);
+  assert.equal(impact.summary.unassessed_files, 0);
   assert.equal(impact.summary.affected_consumer_files, 1);
   assert.equal(impact.summary.unmodified_affected_consumer_files, 1);
   assert.deepEqual(impact.changed_symbols[0].direct_consumers, [{
@@ -74,6 +76,7 @@ test("impact emits deterministic agent-facing evidence and an optional gate", as
   assert.doesNotMatch(first, /uninspected/i);
   assert.match(first, /does not establish whether an agent or reviewer inspected it/i);
   assert.match(first, /not a safety verdict/i);
+  assert.match(first, /analysis_coverage/);
 
   const gated = spawnSync(process.execPath, [...command, "--fail-on-attention"], { cwd: root, encoding: "utf8" });
   assert.equal(gated.status, 2);

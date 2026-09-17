@@ -37,6 +37,15 @@ The local server listens only on `127.0.0.1`, opens the browser automatically,
 and runs until you press `Ctrl+C`. Use `--no-open` to print the URL without
 opening it, or `--port 0` to select any available port.
 
+The review map reports analysis coverage per file:
+
+- `analyzed`: semantic impact analysis ran for the supported file type
+- `partial`: a bounded semantic analyzer ran, but important behavior remains outside its scope
+- `classified`: the file was categorized and measured only
+- `unassessed`: Observatory has no semantic analyzer for the file type
+
+`unassessed` is deliberately not a low-risk verdict.
+
 ## Generate Agent Impact JSON
 
 Analyze staged, unstaged, deleted, renamed, and untracked work:
@@ -101,6 +110,8 @@ jq '[.changed_files[]
 
 An empty symbol list may mean the diff contains documentation, generated files,
 binary assets, or languages outside the current JavaScript/TypeScript analyzer.
+Changed GitHub Actions workflows include partial analysis of triggers,
+permissions, secrets, action pins, environments, and selected shell patterns.
 See [IMPACT_SCHEMA.md](IMPACT_SCHEMA.md) for field definitions and interpretation
 limits, and [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) for a reusable agent prompt.
 

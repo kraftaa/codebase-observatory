@@ -37,14 +37,22 @@ code { color: #f0e7d8; overflow-wrap: anywhere; }
 .topbar span, .topbar a { border: 1px solid rgba(160, 181, 226, 0.16); background: rgba(255, 255, 255, 0.035); padding: 7px 10px; }
 .topbar a, .brand { color: var(--cyan); text-decoration: none; }
 .topbar a:hover { border-color: var(--cyan); }
-.review-hero { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 32px; align-items: end; padding: 50px 0 30px; }
-.review-hero h1 { max-width: 1000px; margin: 10px 0 16px; font-size: clamp(46px, 6.4vw, 96px); line-height: 0.92; letter-spacing: -0.04em; }
-.review-hero > div > p:last-child { max-width: 760px; color: var(--muted); font-size: 17px; line-height: 1.6; }
+.review-overview { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 24px; align-items: end; padding: 22px 0 18px; }
+.review-overview h1 { max-width: 920px; margin: 8px 0 10px; font-size: clamp(32px, 4.2vw, 62px); line-height: 1; letter-spacing: -0.035em; }
+.review-overview > div > p:last-child { max-width: 760px; margin-bottom: 0; color: var(--muted); font-size: 15px; line-height: 1.5; }
 .eyebrow { margin: 0; color: var(--orange); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.14em; text-transform: uppercase; }
 .review-total { display: grid; padding: 22px; border: 1px solid var(--line); background: var(--panel-strong); }
-.review-total strong { color: var(--orange); font-size: 72px; line-height: 1; }
+.review-total strong { color: var(--orange); font-size: 48px; line-height: 1; }
 .review-total span { color: var(--muted); }
 .review-total code { margin-top: 22px; font-size: 16px; }
+.coverage-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.coverage-summary article { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--line); background: rgba(255, 255, 255, 0.025); }
+.coverage-summary span { color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.coverage-summary strong { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 20px; }
+.coverage-card-analyzed strong { color: var(--green); }
+.coverage-card-partial strong { color: #fbbf24; }
+.coverage-card-classified strong { color: var(--cyan); }
+.coverage-card-unassessed strong { color: #fb7185; }
 .review-breakdown { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
 .review-breakdown article { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 18px; border: 1px solid var(--line); background: var(--panel); }
 .review-breakdown span, .review-breakdown small { color: var(--muted); }
@@ -63,12 +71,18 @@ code { color: #f0e7d8; overflow-wrap: anywhere; }
 .priority { display: inline-flex; width: fit-content; padding: 4px 7px; border: 1px solid currentColor; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
 .priority-high { color: #fb7185; }
 .priority-medium { color: #fbbf24; }
+.priority-unassessed { color: #fb7185; border-style: dashed; }
 .priority-low { color: var(--green); }
 .detail-slot { min-width: 0; }
 .review-detail { position: sticky; top: 14px; max-height: calc(100vh - 28px); overflow: auto; }
 .review-detail h3 { margin: 24px 0 10px; color: var(--muted); font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
 .reason-list p { margin: 7px 0; color: var(--muted); }
-.changed-symbols, .review-files { display: grid; gap: 8px; }
+.changed-symbols, .review-files, .workflow-findings { display: grid; gap: 8px; }
+.workflow-finding { padding: 12px; border-left: 2px solid #fbbf24; background: rgba(251, 191, 36, 0.06); }
+.workflow-finding.finding-high { border-left-color: #fb7185; background: rgba(251, 113, 133, 0.06); }
+.workflow-finding > div { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; }
+.workflow-finding p { margin: 9px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.workflow-finding code { color: var(--muted); font-size: 11px; }
 .changed-symbols article { padding: 12px; border-left: 2px solid var(--violet); background: rgba(167, 139, 250, 0.055); }
 .changed-symbols article > div { display: flex; justify-content: space-between; gap: 12px; }
 .changed-symbols article span, .changed-symbols article p, .changed-symbols article li { color: var(--muted); font-size: 12px; }
@@ -77,6 +91,12 @@ code { color: #f0e7d8; overflow-wrap: anywhere; }
 .review-files article { padding: 14px; border: 1px solid var(--line); background: rgba(0, 0, 0, 0.14); }
 .review-files article > div:first-child { display: flex; justify-content: space-between; gap: 12px; }
 .review-files article > div > span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.file-coverage { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.coverage { flex: none; padding: 3px 6px; border: 1px solid currentColor; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.08em; text-transform: uppercase; }
+.coverage-analyzed { color: var(--green); }
+.coverage-partial { color: #fbbf24; }
+.coverage-classified { color: var(--cyan); }
+.coverage-unassessed { color: #fb7185; border-style: dashed; }
 .review-files dl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 14px 0 0; }
 .review-files dl div { padding: 8px; background: rgba(255, 255, 255, 0.035); }
 .review-files dt { color: var(--muted); font-size: 10px; text-transform: uppercase; }
@@ -87,13 +107,15 @@ code { color: #f0e7d8; overflow-wrap: anywhere; }
 .error-title { margin-top: 10px; }
 
 @media (max-width: 920px) {
-  .review-hero, .review-workbench { grid-template-columns: 1fr; }
+  .review-overview, .review-workbench { grid-template-columns: 1fr; }
   .review-breakdown { grid-template-columns: repeat(2, 1fr); }
+  .coverage-summary { grid-template-columns: repeat(2, 1fr); }
   .review-detail { position: static; max-height: none; }
 }
 @media (max-width: 560px) {
   .review-shell { padding: 14px; }
   .review-breakdown, .review-files dl { grid-template-columns: 1fr; }
+  .coverage-summary { grid-template-columns: 1fr; }
   .review-files article > div:first-child { flex-direction: column; }
   .review-section-head { display: block; }
   .review-section-head > span { display: block; margin-top: 10px; text-align: left; }
