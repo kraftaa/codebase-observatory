@@ -90,3 +90,7 @@ runtime validation, or reviewer judgment.
 2. Validate symbols across re-exports, aliases, and barrel files.
 3. Compare file-level and symbol-level blast-radius accuracy.
 4. Improve test matching before adding hosted pull-request ingestion.
+
+## License
+
+[Apache-2.0](LICENSE)
