@@ -4,18 +4,22 @@ Run Observatory commands from the Observatory repository. `--repo` must point
 to the repository being analyzed; use `--repo "$PWD"` only when the terminal is
 currently inside that target repository.
 
-## Install
+## Install the CLI
 
 ```bash
-npm install
+brew install kraftaa/tap/observatory
 ```
+
+The Homebrew package includes Node.js and the TypeScript parser dependency. To
+develop the UI or run the project from source, clone the repository and run
+`npm install` instead.
 
 ## Generate Agent Impact JSON
 
 Analyze staged, unstaged, deleted, renamed, and untracked work:
 
 ```bash
-./bin/observatory.mjs impact \
+observatory impact \
   --repo "/absolute/path/to/target-repository" \
   --base HEAD \
   --working-tree \
@@ -25,7 +29,7 @@ Analyze staged, unstaged, deleted, renamed, and untracked work:
 Analyze a committed branch range:
 
 ```bash
-./bin/observatory.mjs impact \
+observatory impact \
   --repo "/absolute/path/to/target-repository" \
   --base origin/main \
   --head HEAD \
@@ -39,7 +43,8 @@ Add `--fail-on-attention` for a completion gate. Exit code `2` means attention
 items exist; the output remains valid JSON. It is a prompt to inspect evidence,
 not a failed safety check. Other nonzero codes indicate analysis failure.
 
-The equivalent npm command begins with `npm run --silent impact --`. Keep
+From a source checkout, the equivalent npm command begins with
+`npm run --silent impact --`. Keep
 `--silent` when redirecting stdout so npm output does not precede the JSON.
 
 ## Inspect Impact JSON
@@ -139,7 +144,7 @@ counterbalancing, and interpretation guardrails.
 ```bash
 npm run analyze -- /path/to/repo
 npm run analyze-diff -- main...HEAD
-./bin/observatory.mjs impact --base main --head HEAD --json
+observatory impact --base main --head HEAD --json
 npm run review-study -- report
 npm run dev
 npm test

@@ -18,6 +18,20 @@ widest, and where a nearby test change was not detected. Every priority includes
 its reasons; Observatory does not produce an opaque risk score or claim that a
 change is safe.
 
+![Codebase Observatory turns a 23-file diff into nine explainable review units](docs/assets/review-map.jpg)
+
+_A real Observatory development diff: 23 files and 2,791 changed lines grouped
+into nine review units. This demonstrates the output, not a measured time-saving
+claim._
+
+## Install
+
+```bash
+brew install kraftaa/tap/observatory
+```
+
+No repository clone or npm installation is required for the CLI.
+
 ## What It Reports
 
 - exact files, line counts, changed ranges, and change types
@@ -32,17 +46,11 @@ and file biographies as supporting evidence.
 
 ## Quick Start
 
-Install dependencies in the Observatory repository:
+Analyze uncommitted work in the current repository:
 
 ```bash
-npm install
-```
-
-Analyze uncommitted work in another repository:
-
-```bash
-./bin/observatory.mjs impact \
-  --repo "/absolute/path/to/target-repository" \
+observatory impact \
+  --repo "$PWD" \
   --base HEAD \
   --working-tree \
   --json > /tmp/impact.json
@@ -57,11 +65,27 @@ jq '{change, summary, attention}' /tmp/impact.json
 Working-tree mode includes staged, unstaged, deleted, renamed, and untracked
 files. To analyze committed work instead, use `--base origin/main --head HEAD`.
 
+## What Compression Looks Like
+
+The example above starts with a mixed 23-file diff:
+
+| Raw change | Observatory review surface |
+| --- | --- |
+| 2,791 changed lines across 23 files | 9 connected review units |
+| Runtime, tests, generated files, and docs mixed together | 8 runtime files separated from supporting changes |
+| File-level diff navigation | Changed symbols, direct consumers, and exact ranges |
+| No explicit test signal | Runtime files without nearby test changes called out |
+
+The selected unit contains two runtime files, seven changed symbols, and one
+direct consumer. See the [full showcase](docs/SHOWCASE.md) for how to read it.
+
 ## Explore The UI
 
-Generate repository and diff data, then start the app:
+Clone the project, install development dependencies, generate data, and start
+the app:
 
 ```bash
+npm install
 npm run analyze -- /absolute/path/to/target-repository
 npm run analyze-diff -- main...HEAD
 npm run dev
@@ -73,6 +97,7 @@ The architecture view is available at `/`; the deterministic review map is at
 ## Documentation
 
 - [Usage and command reference](docs/USAGE.md)
+- [Review-map showcase](docs/SHOWCASE.md)
 - [Coding-agent completion workflow](docs/AGENT_WORKFLOW.md)
 - [Impact JSON schema](docs/IMPACT_SCHEMA.md)
 - [Review-compression study methodology](experiments/METHODOLOGY.md)
