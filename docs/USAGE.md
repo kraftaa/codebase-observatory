@@ -1,8 +1,7 @@
 # Usage
 
-Run Observatory commands from the Observatory repository. `--repo` must point
-to the repository being analyzed; use `--repo "$PWD"` only when the terminal is
-currently inside that target repository.
+`--repo` must point to the repository being analyzed; use `--repo "$PWD"` only
+when the terminal is currently inside that target repository.
 
 ## Install the CLI
 
@@ -10,9 +9,33 @@ currently inside that target repository.
 brew install kraftaa/tap/observatory
 ```
 
-The Homebrew package includes Node.js and the TypeScript parser dependency. To
-develop the UI or run the project from source, clone the repository and run
-`npm install` instead.
+The Homebrew package includes Node.js, the TypeScript parser, and the standalone
+review visualization.
+
+## Open The Review Map
+
+Analyze staged, unstaged, deleted, renamed, and untracked work, then open the
+interactive visualization:
+
+```bash
+observatory review \
+  --repo "/absolute/path/to/target-repository" \
+  --base HEAD \
+  --working-tree
+```
+
+Analyze committed branch changes instead:
+
+```bash
+observatory review \
+  --repo "/absolute/path/to/target-repository" \
+  --base origin/main \
+  --head HEAD
+```
+
+The local server listens only on `127.0.0.1`, opens the browser automatically,
+and runs until you press `Ctrl+C`. Use `--no-open` to print the URL without
+opening it, or `--port 0` to select any available port.
 
 ## Generate Agent Impact JSON
 
@@ -81,7 +104,7 @@ binary assets, or languages outside the current JavaScript/TypeScript analyzer.
 See [IMPACT_SCHEMA.md](IMPACT_SCHEMA.md) for field definitions and interpretation
 limits, and [AGENT_WORKFLOW.md](AGENT_WORKFLOW.md) for a reusable agent prompt.
 
-## Generate UI Data
+## Develop The Full UI From Source
 
 Generate architecture and repository-history data:
 
@@ -145,6 +168,7 @@ counterbalancing, and interpretation guardrails.
 npm run analyze -- /path/to/repo
 npm run analyze-diff -- main...HEAD
 observatory impact --base main --head HEAD --json
+observatory review --base main --head HEAD
 npm run review-study -- report
 npm run dev
 npm test

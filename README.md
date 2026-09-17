@@ -30,7 +30,7 @@ claim._
 brew install kraftaa/tap/observatory
 ```
 
-No repository clone or npm installation is required for the CLI.
+No repository clone or npm installation is required.
 
 ## What It Reports
 
@@ -46,7 +46,19 @@ and file biographies as supporting evidence.
 
 ## Quick Start
 
-Analyze uncommitted work in the current repository:
+Open an interactive review map for uncommitted work in the current repository:
+
+```bash
+observatory review \
+  --repo "$PWD" \
+  --base HEAD \
+  --working-tree
+```
+
+Observatory analyzes the change, starts a loopback-only local server, opens the
+review map in your browser, and stops when you press `Ctrl+C`.
+
+Generate machine-readable evidence for an agent or CI workflow:
 
 ```bash
 observatory impact \
@@ -79,10 +91,10 @@ The example above starts with a mixed 23-file diff:
 The selected unit contains two runtime files, seven changed symbols, and one
 direct consumer. See the [full showcase](docs/SHOWCASE.md) for how to read it.
 
-## Explore The UI
+## Develop The Full UI
 
-Clone the project, install development dependencies, generate data, and start
-the app:
+The installed `review` command contains the diff-review visualization. Clone
+the project only to develop the full architecture and history UI:
 
 ```bash
 npm install

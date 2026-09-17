@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -15,8 +15,24 @@ function git(repo, ...args) {
 }
 
 test("executable reports help and version", () => {
-  assert.match(execFileSync(executable, ["--help"], { cwd: root, encoding: "utf8" }), /^Usage: observatory impact/);
-  assert.equal(execFileSync(executable, ["--version"], { cwd: root, encoding: "utf8" }), "0.1.0\n");
+  const help = execFileSync(executable, ["--help"], { cwd: root, encoding: "utf8" });
+  assert.match(help, /^Usage:/);
+  assert.match(help, /observatory impact/);
+  assert.match(help, /observatory review/);
+  assert.equal(execFileSync(executable, ["--version"], { cwd: root, encoding: "utf8" }), "0.2.0\n");
+});
+
+test("review command ships its standalone interface", async () => {
+  const [server, html, script, css] = await Promise.all([
+    readFile(path.join(root, "scripts/review.mjs"), "utf8"),
+    readFile(path.join(root, "ui/review.html"), "utf8"),
+    readFile(path.join(root, "ui/review.js"), "utf8"),
+    readFile(path.join(root, "ui/review.css"), "utf8"),
+  ]);
+  assert.match(server, /127\.0\.0\.1/);
+  assert.match(html, /Diff Review Map/);
+  assert.match(script, /Changed symbols/);
+  assert.match(css, /review-workbench/);
 });
 
 test("impact emits deterministic agent-facing evidence and an optional gate", async () => {
