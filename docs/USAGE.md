@@ -9,8 +9,9 @@ when the terminal is currently inside that target repository.
 brew install kraftaa/tap/observatory
 ```
 
-The Homebrew package includes Node.js, the TypeScript parser, and the standalone
-review visualization.
+The Homebrew package includes Node.js, the TypeScript parser, the built-in
+Python, Ruby/Rails, and Rust adapters, and the standalone review visualization.
+It does not require separate Python, Ruby, or Rust runtimes.
 
 ## Open The Review Map
 
@@ -109,7 +110,8 @@ jq '[.changed_files[]
 ```
 
 An empty symbol list may mean the diff contains documentation, generated files,
-binary assets, or languages outside the current JavaScript/TypeScript analyzer.
+binary assets, unsupported languages, or syntax outside a bounded language
+adapter's current scope.
 Changed GitHub Actions workflows include partial analysis of triggers,
 permissions, secrets, action pins, environments, and selected shell patterns.
 Line findings are emitted only when the relevant syntax intersects the diff.
@@ -128,7 +130,7 @@ npm run analyze -- /absolute/path/to/target-repository
 ```
 
 This writes `app/generated/repo-data.ts` from tracked files, Git history,
-authors, churn, co-change patterns, and JavaScript/TypeScript imports.
+authors, churn, co-change patterns, and supported static dependency links.
 
 Generate deterministic review units for a branch diff:
 

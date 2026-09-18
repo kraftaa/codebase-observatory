@@ -191,3 +191,56 @@ jobs:
   assert.deepEqual(workflow.workflowAnalysis.findings, []);
   assert.equal(data.reviewUnits.find((unit) => unit.id === "github-actions").priority, "medium");
 });
+
+test("Ruby, Python, and Rust adapters report changed symbols and direct consumers", async () => {
+  const repo = await mkdtemp(path.join(tmpdir(), "observatory-languages-"));
+  git(repo, "init", "-b", "main");
+  git(repo, "config", "user.name", "Language Fixture");
+  git(repo, "config", "user.email", "languages@example.test");
+
+  await put(repo, "src/token.py", "def validate_token(value):\n    return len(value) > 0\n");
+  await put(repo, "src/session.py", "from src.token import validate_token\n\ndef create_session(value):\n    return validate_token(value)\n");
+  await put(repo, "tests/test_token.py", "def test_token():\n    assert True\n");
+  await put(repo, "app/models/token.rb", "class Token\n  def valid?\n    value.length.positive?\n  end\nend\n");
+  await put(repo, "app/services/session.rb", "class Session\n  def create\n    Token.new.valid?\n  end\nend\n");
+  await put(repo, "spec/models/token_spec.rb", "RSpec.describe Token do\nend\n");
+  await put(repo, "rust/src/token.rs", "pub fn validate_token(value: &str) -> bool { value.len() > 0 }\n");
+  await put(repo, "rust/src/session.rs", "use crate::token::validate_token;\npub fn create_session(value: &str) -> bool { validate_token(value) }\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "add language fixtures");
+
+  await put(repo, "src/token.py", "def validate_token(value):\n    return len(value) > 3\n");
+  await put(repo, "app/models/token.rb", "class Token\n  def valid?\n    value.length > 3\n  end\nend\n");
+  await put(repo, "rust/src/token.rs", "pub fn validate_token(value: &str) -> bool { value.len() > 3 }\n");
+  git(repo, "add", ".");
+  git(repo, "commit", "-m", "change validation behavior");
+
+  const output = path.join(repo, "diff-data.ts");
+  execFileSync(process.execPath, [path.join(root, "scripts/analyze-diff.mjs"), "HEAD~1...HEAD", "--repo", repo, "--output", output], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  const source = await readFile(output, "utf8");
+  const data = JSON.parse(source.replace(/^export const diffReviewMap = /, "").replace(/ as const;\s*$/, ""));
+
+  for (const [file, analyzer, symbolName, consumer] of [
+    ["src/token.py", "python", "validate_token", "src/session.py"],
+    ["app/models/token.rb", "ruby-rails", "Token.valid?", "app/services/session.rb"],
+    ["rust/src/token.rs", "rust", "validate_token", "rust/src/session.rs"],
+  ]) {
+    const changedFile = data.changedFiles.find((item) => item.path === file);
+    assert.equal(changedFile.category, "runtime");
+    assert.equal(changedFile.analysisCoverage.status, "partial");
+    assert.equal(changedFile.analysisCoverage.analyzer, analyzer);
+    const changedSymbol = changedFile.changedSymbols.find((item) => item.name === symbolName);
+    assert.ok(changedSymbol, `${file} should report ${symbolName}; got ${changedFile.changedSymbols.map((item) => item.name).join(", ")}`);
+    assert.equal(changedSymbol.changeType, "modified");
+    assert.ok(
+      changedSymbol.directConsumers.some((item) => item.file === consumer),
+      `${file} should reach ${consumer}; got ${changedSymbol.directConsumers.map((item) => item.file).join(", ")}`,
+    );
+  }
+  assert.equal(data.summary.partiallyAnalyzedFiles, 3);
+  assert.equal(data.summary.unassessedFiles, 0);
+  assert.ok(data.reviewUnits.filter((unit) => unit.id.startsWith("runtime-")).every((unit) => unit.analysisCoverage === "partial"));
+});

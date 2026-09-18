@@ -241,7 +241,8 @@ try {
     })),
     attention,
     analysis_limits: [
-      "Consumer detection currently covers statically resolvable relative JavaScript and TypeScript imports.",
+      "Consumer detection covers statically resolvable JavaScript/TypeScript imports plus bounded Python imports, Ruby require_relative and Rails constant references, and Rust use/mod links.",
+      "Python dynamic imports, Ruby metaprogramming and runtime dispatch, and Rust macro expansion and compiler-resolved dispatch are outside current analysis scope.",
       "A consumer not modified in the change does not establish whether an agent or reviewer inspected it.",
       "No nearby-test change detected does not prove that behavior is untested or that tests were not run.",
       "GitHub Actions analysis is partial and pattern-based; it does not evaluate the behavior of executed actions or commands.",

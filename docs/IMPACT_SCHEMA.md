@@ -20,7 +20,8 @@ new schema version.
 - `summary`: counts for files, lines, symbols, consumers, units, and attention.
 - `changed_files`: exact status, category, line counts, changed ranges, analysis
   coverage, and optional workflow findings for every file in the effective diff.
-- `changed_symbols`: changed JS/TS declarations and detected direct consumers.
+- `changed_symbols`: changed declarations and detected direct consumers for
+  JavaScript/TypeScript plus the bounded Python, Ruby/Rails, and Rust adapters.
 - `affected_consumers`: consumer files reached by changed symbols and whether
   each file was modified in the analyzed change.
 - `test_signals`: deterministic nearby-test matches for each runtime file.
@@ -54,9 +55,12 @@ Every changed file includes `analysis_coverage`:
 
 - `analyzed`: supported semantic analysis ran, currently for JavaScript and
   TypeScript symbol impact.
-- `partial`: a bounded semantic analyzer ran. GitHub Actions analysis currently
-  checks changed triggers, token permissions, secret references, mutable action
-  references, environments, workflow size, and selected shell patterns.
+- `partial`: a bounded analyzer ran. Python, Ruby/Rails, and Rust report changed
+  declarations, statically resolved local dependencies, direct consumers, and
+  nearby-test signals without claiming runtime dispatch coverage. GitHub Actions
+  analysis checks changed triggers, token permissions, secret references,
+  mutable action references, environments, workflow size, and selected shell
+  patterns.
 - `classified`: the file was categorized and measured, without semantic analysis.
 - `unassessed`: Observatory has no semantic analyzer for the file type.
 

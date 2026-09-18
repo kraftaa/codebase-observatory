@@ -4,6 +4,13 @@ import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import {
+  analyzerFor,
+  constantBindingsForRuby,
+  isAdditionalRuntime,
+  isAdditionalTest,
+  nearbyTestsFor,
+} from "./language-analyzers.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..");
@@ -83,6 +90,7 @@ const [requestedBaseRef, requestedHeadRef] = range.includes("...")
     ? range.split("..")
     : [range, "HEAD"];
 const diffHeadCommit = git(["rev-parse", workingTree ? "HEAD" : requestedHeadRef || "HEAD"], gitRoot);
+const checkoutHeadCommit = git(["rev-parse", "HEAD"], gitRoot);
 const diffBaseCommit = workingTree
   ? git(["merge-base", requestedBaseRef, "HEAD"], gitRoot)
   : range.includes("...")
@@ -170,13 +178,13 @@ function classify(file) {
   if (generatedMatchers.some((matcher) => matcher.test(file))) return "generated";
   if (/^(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?)$/.test(name)) return "config";
   if (/\.mdx?$/.test(lower) || lower.startsWith("docs/")) return "docs";
-  if (/(^|\/)(tests?|__tests__)(\/|$)/.test(lower) || /\.(test|spec)\.[cm]?[jt]sx?$/.test(lower)) return "test";
+  if (/(^|\/)(spec|tests?|__tests__)(\/|$)/.test(lower) || /\.(test|spec)\.[cm]?[jt]sx?$/.test(lower) || isAdditionalTest(file)) return "test";
   if (
     /(^|\/)(\.github|config)(\/|$)/.test(lower) ||
     /(^|\/)(package\.json|tsconfig[^/]*\.json|[^/]*config\.[cm]?[jt]s|\.env[^/]*)$/.test(lower) ||
     /\.(ya?ml|toml|ini)$/.test(lower)
   ) return "config";
-  if (/\.[cm]?[jt]sx?$/.test(lower)) return "runtime";
+  if (/\.[cm]?[jt]sx?$/.test(lower) || isAdditionalRuntime(file)) return "runtime";
   return "unknown";
 }
 
@@ -194,6 +202,14 @@ function analysisCoverage(file) {
     };
   }
   if (category === "runtime") {
+    const adapter = analyzerFor(file);
+    if (adapter) {
+      return {
+        status: adapter.coverage,
+        analyzer: adapter.id,
+        explanation: adapter.explanation,
+      };
+    }
     return {
       status: "analyzed",
       analyzer: "javascript-typescript",
@@ -224,7 +240,7 @@ function showAtRef(file, ref) {
 }
 
 function showAtHead(file) {
-  if (workingTree) {
+  if (workingTree || diffHeadCommit === checkoutHeadCommit) {
     try {
       return readFileSync(path.join(repoArgument, file), "utf8");
     } catch {
@@ -334,6 +350,10 @@ function symbolInventory(file, source) {
   return symbols;
 }
 
+function inventoryFor(file, source) {
+  return analyzerFor(file)?.symbolInventory(source) ?? symbolInventory(file, source);
+}
+
 function importBindings(file, source) {
   if (!source) return [];
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, scriptKind(file));
@@ -366,6 +386,11 @@ function importBindings(file, source) {
   return bindings;
 }
 
+function bindingsFor(file, source) {
+  const adapter = analyzerFor(file);
+  return adapter ? adapter.importBindings(file, source, trackedSet) : importBindings(file, source);
+}
+
 function linesWithin(ranges, start, end) {
   const lines = [];
   for (const range of ranges) {
@@ -378,20 +403,43 @@ const importGraph = new Map();
 const reverseGraph = new Map([...trackedSet].map((file) => [file, new Set()]));
 const bindingsByDependency = new Map();
 const headSymbolsByFile = new Map();
-for (const file of allTracked.filter((value) => /\.[cm]?[jt]sx?$/.test(value))) {
+const sourceByFile = new Map();
+const analyzableFiles = allTracked.filter((value) => /\.[cm]?[jt]sx?$/.test(value) || isAdditionalRuntime(value));
+for (const file of analyzableFiles) {
   const source = showAtHead(file);
-  const imports = importsFor(file, source);
+  sourceByFile.set(file, source);
+  const bindings = bindingsFor(file, source);
+  const imports = analyzerFor(file)
+    ? [...new Set(bindings.map((binding) => binding.dependency))]
+    : importsFor(file, source);
   importGraph.set(file, imports);
-  headSymbolsByFile.set(file, symbolInventory(file, source));
+  headSymbolsByFile.set(file, inventoryFor(file, source));
   for (const dependency of imports) reverseGraph.get(dependency)?.add(file);
-  for (const binding of importBindings(file, source)) {
+  for (const binding of bindings) {
     const records = bindingsByDependency.get(binding.dependency) ?? [];
     records.push({ file, ...binding });
     bindingsByDependency.set(binding.dependency, records);
   }
 }
+for (const binding of constantBindingsForRuby(analyzableFiles, sourceByFile, headSymbolsByFile)) {
+  const records = bindingsByDependency.get(binding.dependency) ?? [];
+  if (!records.some((record) => record.file === binding.file && record.local === binding.local)) {
+    records.push(binding);
+    bindingsByDependency.set(binding.dependency, records);
+  }
+  const imports = importGraph.get(binding.file) ?? [];
+  if (!imports.includes(binding.dependency)) imports.push(binding.dependency);
+  importGraph.set(binding.file, imports);
+  reverseGraph.get(binding.dependency)?.add(binding.file);
+}
 
 function transitiveDependents(file, previousPath = null) {
+  if (analyzerFor(file)?.id === "ruby-rails") {
+    return new Set([
+      ...(reverseGraph.get(file) ?? []),
+      ...(previousPath ? reverseGraph.get(previousPath) ?? [] : []),
+    ]);
+  }
   const seen = new Set();
   const queue = [
     ...(reverseGraph.get(file) ?? []),
@@ -466,11 +514,12 @@ function likelyTestMatches(file, changedTests) {
   const extensionless = file.replace(/\.[cm]?[jt]sx?$/, "");
   const base = path.posix.basename(extensionless);
   const withoutSrc = extensionless.replace(/^src\//, "");
-  return changedTests.filter((test) =>
+  const javascriptMatches = changedTests.filter((test) =>
     test === `${extensionless}.test.ts` || test === `${extensionless}.spec.ts` ||
     test === `${extensionless}.test.tsx` || test === `${extensionless}.spec.tsx` ||
     test.startsWith(`tests/${withoutSrc}.`) || test.includes(`/${base}.test.`) || test.includes(`/${base}.spec.`),
   );
+  return [...new Set([...javascriptMatches, ...nearbyTestsFor(file, changedTests)])].sort();
 }
 
 const changedTests = nameEntries.filter((entry) => classify(entry.path) === "test").map((entry) => entry.path);
@@ -717,6 +766,19 @@ function containingConsumerSymbols(file, localName) {
   const source = showAtHead(file);
   const inventory = headSymbolsByFile.get(file) ?? [];
   if (!source || !inventory.length) return [];
+  if (analyzerFor(file)) {
+    const found = new Set();
+    const reference = new RegExp(`\\b${localName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+    for (const [index, lineText] of source.split("\n").entries()) {
+      if (!reference.test(lineText) || /^\s*(?:from|import|require_relative|use)\b/.test(lineText)) continue;
+      const line = index + 1;
+      const containing = inventory
+        .filter((item) => line >= item.start && line <= item.end)
+        .sort((a, b) => (a.end - a.start) - (b.end - b.start))[0];
+      if (containing) found.add(containing.name);
+    }
+    return [...found];
+  }
   const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, scriptKind(file));
   const found = new Set();
   const visit = (node) => {
@@ -746,13 +808,14 @@ function directConsumersFor(file, symbol, previousPath = null) {
   const importedName = symbol.defaultExport
     ? "default"
     : symbol.kind === "method" ? symbol.name.split(".")[0] : symbol.name;
+  const importedNames = new Set([importedName, importedName.split("::").at(-1)]);
   const consumers = [];
   const bindings = [
     ...(bindingsByDependency.get(file) ?? []),
     ...(previousPath ? bindingsByDependency.get(previousPath) ?? [] : []),
   ];
   for (const binding of bindings) {
-    if (binding.imported !== "*" && binding.imported !== importedName) continue;
+    if (binding.imported !== "*" && !importedNames.has(binding.imported)) continue;
     const consumerSymbols = containingConsumerSymbols(binding.file, binding.local);
     if (consumerSymbols.length) {
       for (const consumerSymbol of consumerSymbols) consumers.push({ file: binding.file, symbol: consumerSymbol });
@@ -767,8 +830,8 @@ function changedSymbolsFor(entry) {
   if (classify(entry.path) !== "runtime") return [];
   const ranges = rangesByPath.get(entry.path);
   const oldPath = entry.previousPath ?? entry.path;
-  const baseSymbols = symbolInventory(oldPath, showAtRef(oldPath, diffBaseCommit));
-  const headSymbols = symbolInventory(entry.path, showAtHead(entry.path));
+  const baseSymbols = inventoryFor(oldPath, showAtRef(oldPath, diffBaseCommit));
+  const headSymbols = inventoryFor(entry.path, showAtHead(entry.path));
   const baseByKey = new Map(baseSymbols.map((symbol) => [`${symbol.kind}:${symbol.name}`, symbol]));
   const headByKey = new Map(headSymbols.map((symbol) => [`${symbol.kind}:${symbol.name}`, symbol]));
   const changed = [];
@@ -792,12 +855,14 @@ function changedSymbolsFor(entry) {
   }
 
   const withoutParentDuplicates = changed.filter((symbol) => {
-    if (symbol.kind !== "class") return true;
-    const childMethods = changed.filter((candidate) =>
-      candidate.kind === "method" && candidate.name.startsWith(`${symbol.name}.`),
+    if (!["class", "module"].includes(symbol.kind)) return true;
+    const childSymbols = changed.filter((candidate) =>
+      candidate !== symbol && (
+        candidate.name.startsWith(`${symbol.name}.`) || candidate.name.startsWith(`${symbol.name}::`)
+      ),
     );
     return !symbol.changedLines.length || !symbol.changedLines.every((line) =>
-      childMethods.some((method) => line >= method.start && line <= method.end),
+      childSymbols.some((child) => line >= child.start && line <= child.end),
     );
   });
 
@@ -872,6 +937,7 @@ const reviewUnits = components.map((paths, index) => {
   const bugFixes = files.reduce((sum, file) => sum + file.history.recentBugFixCommits, 0);
   const historySignal = files.some((file) => file.history.commitsLast90Days > 0 || file.history.recentBugFixCommits > 0);
   const dependencySignal = files.some((file) => file.transitiveDependentCount > 0);
+  const analysisCoverage = files.some((file) => file.analysisCoverage.status === "partial") ? "partial" : "analyzed";
   const priority = untestedRuntimeFiles.length &&
     (blastRadius >= config.highPriorityDependentThreshold || bugFixes >= config.highPriorityBugFixThreshold)
     ? "high" : dependencySignal || historySignal ? "medium" : "low";
@@ -883,7 +949,8 @@ const reviewUnits = components.map((paths, index) => {
   if (bugFixes) reason.push(`${bugFixes} recent bug-fix commit${bugFixes === 1 ? "" : "s"}`);
   if (untestedRuntimeFiles.length) reason.push(`${untestedRuntimeFiles.length} runtime change${untestedRuntimeFiles.length === 1 ? "" : "s"} without a nearby test change`);
   if (paths.length > 1) reason.push("grouped by imports or strong historical co-change");
-  return { id: `runtime-${index + 1}`, title: commonTitle(paths), files: paths, reason, blastRadius, untestedRuntimeFiles, changedSymbols, externallyUsedChangedSymbols, affectedConsumers, priority };
+  if (analysisCoverage === "partial") reason.push("language analysis is partial and does not model runtime dispatch");
+  return { id: `runtime-${index + 1}`, title: commonTitle(paths), files: paths, reason, blastRadius, untestedRuntimeFiles, changedSymbols, externallyUsedChangedSymbols, affectedConsumers, analysisCoverage, priority };
 });
 
 const workflowFiles = changedFiles.filter((file) => file.workflowAnalysis);

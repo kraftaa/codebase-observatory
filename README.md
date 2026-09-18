@@ -35,7 +35,7 @@ No repository clone or npm installation is required.
 ## What It Reports
 
 - exact files, line counts, changed ranges, and change types
-- changed JavaScript and TypeScript symbols
+- changed JavaScript, TypeScript, Python, Ruby/Rails, and Rust symbols
 - direct consumers and file-level downstream impact
 - explicit analyzed, partial, classified-only, and unassessed coverage states
 - GitHub Actions triggers, permissions, secret references, action pins, environments, and dangerous shell patterns
@@ -118,13 +118,17 @@ The architecture view is available at `/`; the deterministic review map is at
 
 ## Current Scope
 
-Symbol-level analysis currently targets `.js`, `.jsx`, `.ts`, and `.tsx`.
+Symbol-level analysis is complete enough to mark `.js`, `.jsx`, `.ts`, and
+`.tsx` as analyzed. Python, Ruby/Rails, and Rust use bounded adapters that report
+functions, classes/types, methods, local dependencies, direct consumers, and
+nearby tests as partial analysis. Their dynamic dispatch, metaprogramming,
+macros, and runtime loading behavior remain outside scope.
 GitHub Actions analysis is partial and deterministic: it inspects changed
 workflow syntax for selected security and deployment signals but does not
 execute workflows or evaluate third-party action behavior. Findings are tied
 to exact changed lines and describe the selected diff range without attributing
-authorship. Other unsupported
-file types are marked unassessed rather than low priority. Missing static
+authorship. Other unsupported file types are marked unassessed rather than low
+priority. Missing static
 evidence is not proof of safety, test coverage, or runtime behavior.
 
 ## Next Experiments
